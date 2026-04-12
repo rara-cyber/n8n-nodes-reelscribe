@@ -1,0 +1,25 @@
+{
+	"node": "n8n-nodes-reelscribe.reelScribe",
+	"nodeVersion": "1.0",
+	"codexVersion": "1.0",
+	"categories": ["Marketing & Content"],
+	"resources": {
+		"primaryDocumentation": [
+			{
+				"url": "https://reelscribe.app/docs/api"
+			}
+		]
+	},
+	"alias": [
+		"reelscribe",
+		"transcribe",
+		"transcription",
+		"instagram",
+		"tiktok",
+		"youtube",
+		"video",
+		"reel",
+		"caption",
+		"subtitle"
+	]
+}

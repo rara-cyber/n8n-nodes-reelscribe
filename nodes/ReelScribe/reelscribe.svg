@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 60" width="60" height="60">
+  <rect width="60" height="60" rx="12" fill="#1A1A2E"/>
+  <g transform="translate(12, 12)">
+    <!-- Play button triangle -->
+    <path d="M14 8 L14 28 L30 18 Z" fill="#a786ff" opacity="0.9"/>
+    <!-- Waveform lines -->
+    <rect x="4" y="14" width="2" height="8" rx="1" fill="#fd8bbc"/>
+    <rect x="8" y="11" width="2" height="14" rx="1" fill="#eca184"/>
+    <rect x="32" y="11" width="2" height="14" rx="1" fill="#eca184"/>
+    <rect x="36" y="14" width="2" height="8" rx="1" fill="#fd8bbc"/>
+  </g>
+</svg>

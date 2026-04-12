@@ -1,0 +1,63 @@
+{
+  "name": "n8n-nodes-reelscribe",
+  "version": "0.1.0",
+  "description": "n8n community node for ReelScribe — transcribe Instagram Reels, TikTok videos, and YouTube content",
+  "keywords": [
+    "n8n-community-node-package",
+    "n8n-nodes",
+    "n8n",
+    "reelscribe",
+    "transcription",
+    "instagram",
+    "tiktok",
+    "youtube",
+    "video"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/rara-cyber/n8n-nodes-reelscribe#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rara-cyber/n8n-nodes-reelscribe.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rara-cyber/n8n-nodes-reelscribe/issues"
+  },
+  "author": {
+    "name": "ReelScribe",
+    "email": "support@reelscribe.app"
+  },
+  "engines": {
+    "node": ">=18.10"
+  },
+  "main": "index.js",
+  "scripts": {
+    "build": "n8n-node build",
+    "dev": "n8n-node dev",
+    "lint": "n8n-node lint",
+    "lint:fix": "n8n-node lint --fix"
+  },
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/ReelScribeApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/ReelScribe/ReelScribe.node.js"
+    ]
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@n8n/node-cli": "*",
+    "@types/node": "^24.0.1",
+    "eslint": "^9.32.0",
+    "gulp": "^4.0.2",
+    "typescript": "5.9.2"
+  }
+}
