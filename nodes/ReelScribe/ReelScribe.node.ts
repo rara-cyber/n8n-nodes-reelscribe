@@ -2,10 +2,10 @@ import type {
 	IDataObject,
 	IExecuteFunctions,
 	IHttpRequestMethods,
+	IHttpRequestOptions,
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
-	IRequestOptions,
 } from 'n8n-workflow';
 import { NodeApiError } from 'n8n-workflow';
 
@@ -274,7 +274,7 @@ export class ReelScribe implements INodeType {
 					}
 				}
 
-				const options: IRequestOptions = {
+				const options: IHttpRequestOptions = {
 					method,
 					url,
 					json: true,
@@ -302,7 +302,7 @@ export class ReelScribe implements INodeType {
 					});
 					continue;
 				}
-				throw new NodeApiError(this.getNode(), error as IDataObject, {
+				throw new NodeApiError(this.getNode(), { message: (error as Error).message }, {
 					itemIndex: i,
 				});
 			}
