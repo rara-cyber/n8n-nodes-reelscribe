@@ -6,8 +6,9 @@ import type {
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
+	INode,
 } from 'n8n-workflow';
-import { NodeApiError } from 'n8n-workflow';
+import { NodeApiError, sleep } from 'n8n-workflow';
 
 const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled'] as const;
 
@@ -26,6 +27,117 @@ function normalizeInstagramUrl(url: string): string {
 	return url;
 }
 
+interface RetryConfig {
+	maxRetries: number;
+	initialDelay: number;
+	respectRetryAfter: boolean;
+}
+
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
+
+const RETRYABLE_ERROR_CODES = new Set(['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND']);
+
+function getErrorStatusCode(error: any): number | undefined {
+	return error.statusCode ?? error.httpCode ?? error.response?.status ?? error.code;
+}
+
+function getErrorCode(error: any): string | undefined {
+	return error.cause?.code ?? error.code;
+}
+
+function getRetryAfterDelay(error: any): number | undefined {
+	const header =
+		error.response?.headers?.['retry-after'] ??
+		error.headers?.['retry-after'];
+	if (!header) return undefined;
+
+	const seconds = Number(header);
+	if (!isNaN(seconds)) {
+		return Math.min(seconds * 1000, 60000);
+	}
+
+	const date = Date.parse(header);
+	if (!isNaN(date)) {
+		const delay = date - Date.now();
+		return delay > 0 ? Math.min(delay, 60000) : undefined;
+	}
+
+	return undefined;
+}
+
+function getErrorMessage(statusCode: number | undefined, errorCode: string | undefined, attempt: number, maxRetries: number): string {
+	switch (statusCode) {
+		case 429:
+			return 'Rate limited by reelscribe.app.';
+		case 401:
+			return 'Authentication failed. Check your API key in the reelscribe.app credentials.';
+		case 403:
+			return 'Access denied. Your API key may lack permissions for this operation.';
+		case 404:
+			return 'Resource not found. The requested transcription or endpoint does not exist.';
+		case 500:
+		case 502:
+		case 503:
+			return `reelscribe.app is temporarily unavailable (HTTP ${statusCode}). Retried ${attempt} of ${maxRetries} times.`;
+		case 504:
+			return `Gateway timeout from reelscribe.app. The service may be under heavy load. Retried ${attempt} of ${maxRetries} times.`;
+		default:
+			if (errorCode && RETRYABLE_ERROR_CODES.has(errorCode)) {
+				return `Network error (${errorCode}). Retried ${attempt} of ${maxRetries} times.`;
+			}
+			return `Request failed${statusCode ? ` (HTTP ${statusCode})` : ''}.`;
+	}
+}
+
+async function requestWithRetry(
+	context: IExecuteFunctions,
+	node: INode,
+	options: IHttpRequestOptions,
+	retryConfig: RetryConfig,
+	itemIndex: number,
+): Promise<IDataObject> {
+	const { maxRetries, initialDelay, respectRetryAfter } = retryConfig;
+
+	for (let attempt = 0; attempt <= maxRetries; attempt++) {
+		try {
+			const response = await context.helpers.httpRequestWithAuthentication.call(
+				context,
+				'reelScribeApi',
+				options,
+			);
+			return response as IDataObject;
+		} catch (error: any) {
+			const statusCode = getErrorStatusCode(error);
+			const errorCode = getErrorCode(error);
+
+			const isRetryable =
+				(statusCode !== undefined && RETRYABLE_STATUS_CODES.has(statusCode)) ||
+				(errorCode !== undefined && RETRYABLE_ERROR_CODES.has(errorCode));
+
+			if (!isRetryable || attempt >= maxRetries) {
+				const message = getErrorMessage(statusCode, errorCode, attempt, maxRetries);
+				throw new NodeApiError(node, { message }, { itemIndex });
+			}
+
+			let delay: number;
+			if (statusCode === 429 && respectRetryAfter) {
+				const retryAfter = getRetryAfterDelay(error);
+				delay = retryAfter ?? initialDelay * Math.pow(2, attempt);
+			} else {
+				delay = initialDelay * Math.pow(2, attempt);
+			}
+
+			// Add 0-20% jitter
+			delay += delay * Math.random() * 0.2;
+
+			await sleep(delay);
+		}
+	}
+
+	// Should not reach here, but satisfy TypeScript
+	throw new NodeApiError(node, { message: 'Unexpected retry loop exit' }, { itemIndex });
+}
+
 export class ReelScribe implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'reelscribe.app',
@@ -37,6 +149,7 @@ export class ReelScribe implements INodeType {
 		description:
 			'Transcribe Instagram Reels, TikTok videos, and YouTube content with reelscribe.app',
 		defaults: { name: 'reelscribe.app' },
+		usableAsTool: true,
 		inputs: ['main'],
 		outputs: ['main'],
 		credentials: [
@@ -198,11 +311,11 @@ export class ReelScribe implements INodeType {
 						type: 'options',
 						options: [
 							{ name: 'All', value: '' },
-							{ name: 'Submitted', value: 'submitted' },
-							{ name: 'Processing', value: 'processing' },
+							{ name: 'Cancelled', value: 'cancelled' },
 							{ name: 'Completed', value: 'completed' },
 							{ name: 'Failed', value: 'failed' },
-							{ name: 'Cancelled', value: 'cancelled' },
+							{ name: 'Processing', value: 'processing' },
+							{ name: 'Submitted', value: 'submitted' },
 						],
 						default: '',
 						description: 'Filter by transcription status',
@@ -213,6 +326,43 @@ export class ReelScribe implements INodeType {
 						type: 'string',
 						default: '',
 						description: 'Search transcriptions by video URL',
+					},
+				],
+			},
+
+			// ------------------------------------------------------------------
+			// Error Handling (all operations)
+			// ------------------------------------------------------------------
+			{
+				displayName: 'Error Handling',
+				name: 'errorHandling',
+				type: 'collection',
+				placeholder: 'Add Option',
+				default: {},
+				description: 'Configure retry behavior for transient API errors (rate limits, server errors)',
+				options: [
+					{
+						displayName: 'Max Retries',
+						name: 'maxRetries',
+						type: 'number',
+						default: 3,
+						typeOptions: { minValue: 0 },
+						description: 'Maximum retry attempts for retryable errors (429, 5xx, network timeouts). Set to 0 to disable retries.',
+					},
+					{
+						displayName: 'Initial Delay (Ms)',
+						name: 'initialDelay',
+						type: 'number',
+						default: 1000,
+						typeOptions: { minValue: 100 },
+						description: 'Base delay in milliseconds before the first retry. Doubles with each subsequent attempt (exponential backoff).',
+					},
+					{
+						displayName: 'Respect Retry-After Header',
+						name: 'respectRetryAfter',
+						type: 'boolean',
+						default: true,
+						description: 'Whether to honor the Retry-After header on 429 responses instead of using calculated backoff',
 					},
 				],
 			},
@@ -229,6 +379,12 @@ export class ReelScribe implements INodeType {
 		for (let i = 0; i < items.length; i++) {
 			try {
 				const operation = this.getNodeParameter('operation', i) as string;
+				const errorHandling = this.getNodeParameter('errorHandling', i, {}) as IDataObject;
+				const retryConfig: RetryConfig = {
+					maxRetries: (errorHandling.maxRetries as number) ?? 3,
+					initialDelay: (errorHandling.initialDelay as number) ?? 1000,
+					respectRetryAfter: (errorHandling.respectRetryAfter as boolean) ?? true,
+				};
 
 				let method: IHttpRequestMethods = 'GET';
 				let url = '';
@@ -258,11 +414,13 @@ export class ReelScribe implements INodeType {
 						}
 
 						// Submit the transcription
-						const submitResponse = await this.helpers.httpRequestWithAuthentication.call(
+						const submitResponse = await requestWithRetry(
 							this,
-							'reelScribeApi',
+							this.getNode(),
 							{ method, url, body, json: true },
-						) as IDataObject;
+							retryConfig,
+							i,
+						);
 
 						// Handle duplicate — API returns the existing transcription directly
 						if (submitResponse.duplicate) {
@@ -288,13 +446,13 @@ export class ReelScribe implements INodeType {
 						const maxConsecutiveErrors = 5;
 
 						// Small delay before first poll to let the record be created
-						await new Promise((resolve) => setTimeout(resolve, 2000));
+						await sleep(2000);
 
 						while (Date.now() - startTime < timeout) {
 							try {
-								const pollResponse = await this.helpers.httpRequestWithAuthentication.call(
+								const pollResponse = await requestWithRetry(
 									this,
-									'reelScribeApi',
+									this.getNode(),
 									{
 										method: 'GET',
 										url: `${baseUrl}/v1/transcriptions`,
@@ -302,7 +460,9 @@ export class ReelScribe implements INodeType {
 										json: true,
 										timeout: 30000,
 									},
-								) as IDataObject;
+									retryConfig,
+									i,
+								);
 
 								consecutiveErrors = 0;
 
@@ -323,7 +483,7 @@ export class ReelScribe implements INodeType {
 								// 404 is expected briefly after submission — keep polling
 							}
 
-							await new Promise((resolve) => setTimeout(resolve, pollingInterval));
+							await sleep(pollingInterval);
 						}
 
 						if (!finalResponse) {
@@ -386,13 +546,15 @@ export class ReelScribe implements INodeType {
 					options.qs = qs;
 				}
 
-				const response = await this.helpers.httpRequestWithAuthentication.call(
+				const response = await requestWithRetry(
 					this,
-					'reelScribeApi',
+					this.getNode(),
 					options,
+					retryConfig,
+					i,
 				);
 
-				results.push({ json: response as IDataObject });
+				results.push({ json: response });
 			} catch (error) {
 				if (this.continueOnFail()) {
 					results.push({
