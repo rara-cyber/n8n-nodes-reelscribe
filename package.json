@@ -11,7 +11,15 @@
     "instagram",
     "tiktok",
     "youtube",
-    "video"
+    "video",
+    "captions",
+    "subtitles",
+    "video-to-text",
+    "speech-to-text",
+    "automation",
+    "no-code",
+    "content-creation",
+    "social-media"
   ],
   "license": "MIT",
   "homepage": "https://github.com/rara-cyber/n8n-nodes-reelscribe#readme",
