@@ -258,23 +258,43 @@ export class ReelScribe implements INodeType {
 						const timeout = (this.getNodeParameter('timeout', i, 300) as number) * 1000;
 						const startTime = Date.now();
 						let finalResponse: IDataObject | undefined;
+						let consecutiveErrors = 0;
+						const maxConsecutiveErrors = 5;
+
+						// Small delay before first poll to let the record be created
+						await new Promise((resolve) => setTimeout(resolve, 2000));
 
 						while (Date.now() - startTime < timeout) {
-							const pollResponse = await this.helpers.httpRequestWithAuthentication.call(
-								this,
-								'reelScribeApi',
-								{
-									method: 'GET',
-									url: `${baseUrl}/v1/transcriptions`,
-									qs: { requestId },
-									json: true,
-								},
-							) as IDataObject;
+							try {
+								const pollResponse = await this.helpers.httpRequestWithAuthentication.call(
+									this,
+									'reelScribeApi',
+									{
+										method: 'GET',
+										url: `${baseUrl}/v1/transcriptions`,
+										qs: { requestId },
+										json: true,
+										timeout: 30000,
+									},
+								) as IDataObject;
 
-							const status = pollResponse.status as string;
-							if ((TERMINAL_STATUSES as readonly string[]).includes(status)) {
-								finalResponse = pollResponse;
-								break;
+								consecutiveErrors = 0;
+
+								const status = pollResponse.status as string;
+								if ((TERMINAL_STATUSES as readonly string[]).includes(status)) {
+									finalResponse = pollResponse;
+									break;
+								}
+							} catch (pollError) {
+								consecutiveErrors++;
+								if (consecutiveErrors >= maxConsecutiveErrors) {
+									throw new NodeApiError(
+										this.getNode(),
+										{ message: `Polling failed after ${maxConsecutiveErrors} consecutive errors: ${(pollError as Error).message}` },
+										{ itemIndex: i },
+									);
+								}
+								// 404 is expected briefly after submission — keep polling
 							}
 
 							await new Promise((resolve) => setTimeout(resolve, pollingInterval));
@@ -283,7 +303,7 @@ export class ReelScribe implements INodeType {
 						if (!finalResponse) {
 							throw new NodeApiError(
 								this.getNode(),
-								{ message: `Transcription timed out after ${timeout / 1000} seconds` },
+								{ message: `Transcription timed out after ${timeout / 1000} seconds. The transcription may still be processing — use "Get Transcription" with requestId "${requestId}" to check.` },
 								{ itemIndex: i },
 							);
 						}
