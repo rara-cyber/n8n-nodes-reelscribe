@@ -11,6 +11,21 @@ import { NodeApiError } from 'n8n-workflow';
 
 const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled'] as const;
 
+/**
+ * Normalize an Instagram URL by stripping the username prefix.
+ * e.g. instagram.com/username/reel/CODE → instagram.com/reel/CODE
+ */
+function normalizeInstagramUrl(url: string): string {
+	const match = url.match(
+		/instagram\.com\/(?:[\w.-]+\/)?(?:(reel|reels|p|tv)\/([A-Za-z0-9_-]+))/i,
+	);
+	if (match) {
+		const pathType = match[1].toLowerCase() === 'reels' ? 'reel' : match[1].toLowerCase();
+		return `https://www.instagram.com/${pathType}/${match[2]}/`;
+	}
+	return url;
+}
+
 export class ReelScribe implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'reelscribe.app',
@@ -222,8 +237,13 @@ export class ReelScribe implements INodeType {
 
 				switch (operation) {
 					case 'transcribe': {
-						const videoUrl = this.getNodeParameter('url', i) as string;
+						let videoUrl = this.getNodeParameter('url', i) as string;
 						const waitForCompletion = this.getNodeParameter('waitForCompletion', i, true) as boolean;
+
+						// Normalize Instagram URLs (strip username prefix)
+						if (videoUrl.toLowerCase().includes('instagram.com')) {
+							videoUrl = normalizeInstagramUrl(videoUrl);
+						}
 
 						method = 'POST';
 						url = `${baseUrl}/v1/transcribe`;
