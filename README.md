@@ -37,8 +37,6 @@ Here are some real workflows you can build:
 | **Get Transcription** | Retrieve a transcription by ID or request ID |
 | **List Transcriptions** | List all transcriptions with optional status/URL filters |
 | **Get Credits** | Check your credit balance and subscription tier |
-| **Get Settings** | View current account settings |
-| **Update Settings** | Toggle auto-prune storage and other preferences |
 
 ## Installation
 
@@ -92,8 +90,6 @@ This node wraps the [ReelScribe API v1](https://reelscribe.app/docs/api):
 - `POST /v1/transcribe` — Submit transcription
 - `GET /v1/transcriptions` — List/search transcriptions
 - `GET /v1/credits` — Credit balance
-- `GET /v1/settings` — Account settings
-- `PATCH /v1/settings` — Update settings
 
 ## Links
 

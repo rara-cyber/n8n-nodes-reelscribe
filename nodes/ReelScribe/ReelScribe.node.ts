@@ -33,19 +33,34 @@ interface RetryConfig {
 	respectRetryAfter: boolean;
 }
 
+interface HttpRequestError {
+	statusCode?: number;
+	httpCode?: number;
+	code?: string;
+	message: string;
+	response?: {
+		status?: number;
+		headers?: Record<string, string>;
+	};
+	headers?: Record<string, string>;
+	cause?: {
+		code?: string;
+	};
+}
+
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 
 const RETRYABLE_ERROR_CODES = new Set(['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND']);
 
-function getErrorStatusCode(error: any): number | undefined {
-	return error.statusCode ?? error.httpCode ?? error.response?.status ?? error.code;
+function getErrorStatusCode(error: HttpRequestError): number | undefined {
+	return error.statusCode ?? error.httpCode ?? error.response?.status;
 }
 
-function getErrorCode(error: any): string | undefined {
+function getErrorCode(error: HttpRequestError): string | undefined {
 	return error.cause?.code ?? error.code;
 }
 
-function getRetryAfterDelay(error: any): number | undefined {
+function getRetryAfterDelay(error: HttpRequestError): number | undefined {
 	const header =
 		error.response?.headers?.['retry-after'] ??
 		error.headers?.['retry-after'];
@@ -106,9 +121,10 @@ async function requestWithRetry(
 				options,
 			);
 			return response as IDataObject;
-		} catch (error: any) {
-			const statusCode = getErrorStatusCode(error);
-			const errorCode = getErrorCode(error);
+		} catch (error) {
+			const httpError = error as HttpRequestError;
+			const statusCode = getErrorStatusCode(httpError);
+			const errorCode = getErrorCode(httpError);
 
 			const isRetryable =
 				(statusCode !== undefined && RETRYABLE_STATUS_CODES.has(statusCode)) ||

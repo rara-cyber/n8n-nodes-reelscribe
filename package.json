@@ -33,36 +33,24 @@
   "bugs": {
     "url": "https://github.com/rara-cyber/n8n-nodes-reelscribe/issues"
   },
-  "author": {
-    "name": "ReelScribe",
-    "email": "support@reelscribe.app"
-  },
-  "engines": {
-    "node": ">=18.10"
-  },
+  "author": { "name": "ReelScribe", "email": "support@reelscribe.app" },
+  "engines": { "node": ">=18.10" },
   "main": "index.js",
   "scripts": {
     "build": "n8n-node build",
     "dev": "n8n-node dev",
     "lint": "n8n-node lint",
-    "lint:fix": "n8n-node lint --fix"
+    "lint:fix": "n8n-node lint --fix",
+    "release": "n8n-node release"
   },
-  "files": [
-    "dist",
-    "LICENSE"
-  ],
+  "files": ["dist", "LICENSE"],
   "n8n": {
     "n8nNodesApiVersion": 1,
-    "credentials": [
-      "dist/credentials/ReelScribeApi.credentials.js"
-    ],
-    "nodes": [
-      "dist/nodes/ReelScribe/ReelScribe.node.js"
-    ]
+    "credentials": ["dist/credentials/ReelScribeApi.credentials.js"],
+    "nodes": ["dist/nodes/ReelScribe/ReelScribe.node.js"],
+    "strict": true
   },
-  "peerDependencies": {
-    "n8n-workflow": "*"
-  },
+  "peerDependencies": { "n8n-workflow": "*" },
   "dependencies": {},
   "devDependencies": {
     "@n8n/node-cli": "*",
