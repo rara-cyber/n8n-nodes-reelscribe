@@ -1,2 +1,15 @@
 .DS_Store
 *.tsbuildinfo
+.claude
+.editorconfig
+.prettierrc.js
+.gitignore
+eslint.config.mjs
+gulpfile.js
+tsconfig.json
+nodes/**/*.ts
+credentials/**/*.ts
+CLAUDE.md
+MARKETING_PLAN.md
+FORUM_POST.md
+docs/
