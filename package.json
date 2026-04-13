@@ -8,6 +8,7 @@
     "n8n",
     "reelscribe",
     "transcription",
+    "transcript",
     "instagram",
     "tiktok",
     "youtube",
@@ -17,7 +18,9 @@
     "video-to-text",
     "speech-to-text",
     "automation",
-    "no-code",
+    "integration",
+    "api",
+    "workflow",
     "content-creation",
     "social-media"
   ],
