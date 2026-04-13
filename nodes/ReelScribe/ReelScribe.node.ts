@@ -244,6 +244,12 @@ export class ReelScribe implements INodeType {
 							{ method, url, body, json: true },
 						) as IDataObject;
 
+						// Handle duplicate — API returns the existing transcription directly
+						if (submitResponse.duplicate) {
+							results.push({ json: submitResponse });
+							continue;
+						}
+
 						const requestId = submitResponse.requestId as string;
 						if (!requestId) {
 							throw new NodeApiError(
