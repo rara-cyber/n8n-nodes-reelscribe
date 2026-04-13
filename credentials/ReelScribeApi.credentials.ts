@@ -8,7 +8,7 @@ import type {
 
 export class ReelScribeApi implements ICredentialType {
 	name = 'reelScribeApi';
-	displayName = 'ReelScribe API';
+	displayName = 'reelscribe.app API';
 	documentationUrl = 'https://reelscribe.app/docs/api';
 	icon: Icon = 'file:../nodes/ReelScribe/reelscribe.svg';
 

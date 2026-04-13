@@ -9,22 +9,24 @@ import type {
 } from 'n8n-workflow';
 import { NodeApiError } from 'n8n-workflow';
 
+const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled'] as const;
+
 export class ReelScribe implements INodeType {
 	description: INodeTypeDescription = {
-		displayName: 'ReelScribe',
+		displayName: 'reelscribe.app',
 		name: 'reelScribe',
 		icon: 'file:reelscribe.svg',
 		group: ['transform'],
 		version: 1,
 		subtitle: '={{$parameter["operation"]}}',
 		description:
-			'Transcribe Instagram Reels, TikTok videos, and YouTube content with ReelScribe',
-		defaults: { name: 'ReelScribe' },
+			'Transcribe Instagram Reels, TikTok videos, and YouTube content with reelscribe.app',
+		defaults: { name: 'reelscribe.app' },
 		inputs: ['main'],
 		outputs: ['main'],
 		credentials: [
 			{
-				displayName: 'ReelScribe API',
+				displayName: 'reelscribe.app API',
 				name: 'reelScribeApi',
 				required: true,
 			},
@@ -63,18 +65,6 @@ export class ReelScribe implements INodeType {
 						description: 'Check your credit balance and subscription info',
 						action: 'Get credit balance',
 					},
-					{
-						name: 'Get Settings',
-						value: 'getSettings',
-						description: 'Get current user settings',
-						action: 'Get settings',
-					},
-					{
-						name: 'Update Settings',
-						value: 'updateSettings',
-						description: 'Update user settings',
-						action: 'Update settings',
-					},
 				],
 				default: 'transcribe',
 			},
@@ -94,14 +84,47 @@ export class ReelScribe implements INodeType {
 				placeholder: 'https://www.instagram.com/reel/ABC123/',
 			},
 			{
+				displayName: 'Wait for Completion',
+				name: 'waitForCompletion',
+				type: 'boolean',
+				default: true,
+				displayOptions: { show: { operation: ['transcribe'] } },
+				description:
+					'Whether to wait for the transcription to complete before returning the result. When disabled, the node returns immediately with a request ID.',
+			},
+			{
 				displayName: 'Resume URL',
 				name: 'resumeUrl',
 				type: 'string',
 				default: '',
-				displayOptions: { show: { operation: ['transcribe'] } },
+				displayOptions: {
+					show: { operation: ['transcribe'], waitForCompletion: [false] },
+				},
 				description:
 					'Optional webhook URL to receive the transcription result when processing completes. Must be HTTPS.',
 				placeholder: 'https://your-server.com/webhook/reelscribe',
+			},
+			{
+				displayName: 'Polling Interval (Seconds)',
+				name: 'pollingInterval',
+				type: 'number',
+				default: 5,
+				typeOptions: { minValue: 1 },
+				displayOptions: {
+					show: { operation: ['transcribe'], waitForCompletion: [true] },
+				},
+				description: 'How often to check for transcription completion (in seconds)',
+			},
+			{
+				displayName: 'Timeout (Seconds)',
+				name: 'timeout',
+				type: 'number',
+				default: 300,
+				typeOptions: { minValue: 10 },
+				displayOptions: {
+					show: { operation: ['transcribe'], waitForCompletion: [true] },
+				},
+				description: 'Maximum time to wait for the transcription to complete (in seconds)',
 			},
 
 			// ------------------------------------------------------------------
@@ -179,30 +202,18 @@ export class ReelScribe implements INodeType {
 				],
 			},
 
-			// ------------------------------------------------------------------
-			// Update Settings
-			// ------------------------------------------------------------------
-			{
-				displayName: 'Auto-Prune Storage',
-				name: 'autoPruneStorage',
-				type: 'boolean',
-				default: true,
-				displayOptions: { show: { operation: ['updateSettings'] } },
-				description:
-					'Whether to automatically delete the oldest transcription when storage limit is reached',
-			},
 		],
 	};
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
 		const results: INodeExecutionData[] = [];
+		const credentials = await this.getCredentials('reelScribeApi');
+		const baseUrl = credentials.baseUrl as string;
 
 		for (let i = 0; i < items.length; i++) {
 			try {
 				const operation = this.getNodeParameter('operation', i) as string;
-				const credentials = await this.getCredentials('reelScribeApi');
-				const baseUrl = credentials.baseUrl as string;
 
 				let method: IHttpRequestMethods = 'GET';
 				let url = '';
@@ -211,15 +222,74 @@ export class ReelScribe implements INodeType {
 
 				switch (operation) {
 					case 'transcribe': {
+						const videoUrl = this.getNodeParameter('url', i) as string;
+						const waitForCompletion = this.getNodeParameter('waitForCompletion', i, true) as boolean;
+
 						method = 'POST';
 						url = `${baseUrl}/v1/transcribe`;
-						const videoUrl = this.getNodeParameter('url', i) as string;
-						const resumeUrl = this.getNodeParameter('resumeUrl', i, '') as string;
 						body = { url: videoUrl };
-						if (resumeUrl) {
-							body.resumeUrl = resumeUrl;
+
+						if (!waitForCompletion) {
+							const resumeUrl = this.getNodeParameter('resumeUrl', i, '') as string;
+							if (resumeUrl) {
+								body.resumeUrl = resumeUrl;
+							}
+							break;
 						}
-						break;
+
+						// Submit the transcription
+						const submitResponse = await this.helpers.httpRequestWithAuthentication.call(
+							this,
+							'reelScribeApi',
+							{ method, url, body, json: true },
+						) as IDataObject;
+
+						const requestId = submitResponse.requestId as string;
+						if (!requestId) {
+							throw new NodeApiError(
+								this.getNode(),
+								{ message: 'No requestId returned from transcribe endpoint' },
+								{ itemIndex: i },
+							);
+						}
+
+						// Poll until completed, failed, or timeout
+						const pollingInterval = (this.getNodeParameter('pollingInterval', i, 5) as number) * 1000;
+						const timeout = (this.getNodeParameter('timeout', i, 300) as number) * 1000;
+						const startTime = Date.now();
+						let finalResponse: IDataObject | undefined;
+
+						while (Date.now() - startTime < timeout) {
+							const pollResponse = await this.helpers.httpRequestWithAuthentication.call(
+								this,
+								'reelScribeApi',
+								{
+									method: 'GET',
+									url: `${baseUrl}/v1/transcriptions`,
+									qs: { requestId },
+									json: true,
+								},
+							) as IDataObject;
+
+							const status = pollResponse.status as string;
+							if ((TERMINAL_STATUSES as readonly string[]).includes(status)) {
+								finalResponse = pollResponse;
+								break;
+							}
+
+							await new Promise((resolve) => setTimeout(resolve, pollingInterval));
+						}
+
+						if (!finalResponse) {
+							throw new NodeApiError(
+								this.getNode(),
+								{ message: `Transcription timed out after ${timeout / 1000} seconds` },
+								{ itemIndex: i },
+							);
+						}
+
+						results.push({ json: finalResponse });
+						continue;
 					}
 
 					case 'getTranscription': {
@@ -255,23 +325,6 @@ export class ReelScribe implements INodeType {
 						break;
 					}
 
-					case 'getSettings': {
-						method = 'GET';
-						url = `${baseUrl}/v1/settings`;
-						break;
-					}
-
-					case 'updateSettings': {
-						method = 'PATCH';
-						url = `${baseUrl}/v1/settings`;
-						body = {
-							autoPruneStorage: this.getNodeParameter(
-								'autoPruneStorage',
-								i,
-							) as boolean,
-						};
-						break;
-					}
 				}
 
 				const options: IHttpRequestOptions = {
